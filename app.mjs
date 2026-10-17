@@ -3,8 +3,9 @@ import {nativePlatform} from './local-notifications.mjs';
 import {resolveLocale} from './locale.mjs';
 document.documentElement.lang = resolveLocale(typeof navigator !== 'undefined' ? navigator.languages : [] ).slice(0,2);
 import {premiumPriceSummary} from './pricing.mjs';
-import {formatISO,parseDate,addDays,diffDays,normalizePeriods,cycleStatus,cyclePhase,calendarMarks,moonPhase,zodiac} from './cycle.mjs';
+import {formatISO,parseDate,addDays,diffDays,normalizePeriods,cycleStatus,cyclePhase,calendarMarks,fertilityEstimate,moonPhase,zodiac} from './cycle.mjs';
 import {morningMessage,wellness,safety} from './content.mjs';
+import {dailyHoroscope} from './horoscope.mjs';
 import {cycleHistory,symptomOverview,dailyGuidance} from './insights.mjs';
 import {createEncryptedBackup,readEncryptedBackup,describeBackupState} from './backup.mjs';
 import {reminderCalendar} from './reminder.mjs';
@@ -86,7 +87,7 @@ async function save(){
  finally{pendingWrites--;updateSaveStatus();}
 }
 function toast(message){const t=$('toast');t.textContent=message;t.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.hidden=true,2900)}
-function navigate(name){if(!vault.unlocked||!['home','cycle','wellbeing','moon','profile'].includes(name))return;active=name;document.querySelectorAll('.screen').forEach(s=>s.hidden=s.id!==`screen-${name}`);document.querySelectorAll('[data-screen]').forEach(b=>{b.classList.toggle('selected',b.dataset.screen===name);if(b.dataset.screen===name)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});render();scrollTo({top:0,behavior:'instant'});}
+function navigate(name){if(!vault.unlocked||!['home','cycle','wellbeing','moon','profile'].includes(name))return;active=name;document.querySelectorAll('.screen').forEach(s=>s.hidden=s.id!==`screen-${name}`);document.querySelectorAll('[data-screen]').forEach(b=>{b.classList.toggle('selected',b.dataset.screen===name);if(b.dataset.screen===name)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});render();const scrollArea=$('main');if(scrollArea)scrollArea.scrollTop=0;}
 function element(tag,classes,text){const el=document.createElement(tag);if(classes)el.className=classes;if(text!==undefined)el.textContent=text;return el;}
 function currentMood(){return state.moods[dayToday]||'';}
 function renderHome(){const now=new Date();$('home-date').textContent=now.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});$('greeting-name').textContent=state.profile.name?.trim()||'du Liebe';const phase=cyclePhase(state.periods,state.profile,dayToday);const quote=morningMessage(dayToday,phase,currentMood());$('morning-quote').textContent=quote;
@@ -96,10 +97,21 @@ function renderHome(){const now=new Date();$('home-date').textContent=now.toLoca
  const tips={gut:'Wie schön! Halte einen kleinen Moment fest, auf den du dich freust.',sensibel:'Deine Gefühle dürfen heute da sein. Gönne dir Ruhe, wenn du sie brauchst.',erschöpft:'Du darfst einen Gang zurückschalten. Vielleicht tut dir etwas Wärme gut.',gestresst:'Ein tiefer Atemzug und eine kleine Pause können den Tag leichter machen.'};$('home-tip').textContent=tips[mood]||'Ein paar Minuten Pause gehören auch zu einem guten Tag.';
  const guidance=dailyGuidance(state.symptoms.find(e=>e.date===dayToday),mood);const panel=$('daily-guidance');panel.textContent=guidance.text;panel.className='daily-guidance '+guidance.level;
 }
-function renderCalendar(){let y=monthView.getFullYear(),m=monthView.getMonth();$('month-title').textContent=monthView.toLocaleDateString('de-DE',{month:'long',year:'numeric'});const grid=$('calendar');grid.replaceChildren();for(const name of ['Mo','Di','Mi','Do','Fr','Sa','So'])grid.append(element('span','day header',name));for(let i=0;i<(new Date(y,m,1).getDay()+6)%7;i++)grid.append(element('span'));
+const FERTILITY_OPT_IN='luna-test-fertility-v40-opt-in';
+function fertilityEnabled(){try{return localStorage.getItem(FERTILITY_OPT_IN)==='yes';}catch{return false;}}
+function renderFertility(){
+ const toggle=$('fertility-toggle');toggle.checked=fertilityEnabled();
+ const info=$('fertility-info');
+ if(!toggle.checked){info.textContent='Optional: Schalte die Schätzung ein, wenn du sie sehen möchtest. Keine Verhütungs- oder Kinderwunschberatung.';return;}
+ const est=fertilityEstimate(state.periods,state.profile,dayToday);
+ info.textContent=est.available
+ ?`Rechnerisches Zeitfenster: ${readable(est.start)} bis ${readable(est.end)}; rechnerischer Eisprung etwa ${readable(est.ovulation)}. Sehr unsicher: Ein Kalender kann Eisprung und fruchtbare Tage nicht zuverlässig bestimmen. Nicht zur Verhütung oder zur sicheren Bestimmung fruchtbarer Tage verwenden.`
+ :est.reason+' Kalendermethoden sind nicht zur Verhütung oder zur sicheren Bestimmung fruchtbarer Tage geeignet.';
+}
+function renderCalendar(){let y=monthView.getFullYear(),m=monthView.getMonth();$('month-title').textContent=monthView.toLocaleDateString('de-DE',{month:'long',year:'numeric'});const grid=$('calendar');grid.replaceChildren();const fertility=fertilityEnabled()?fertilityEstimate(state.periods,state.profile,dayToday):{available:false};for(const name of ['Mo','Di','Mi','Do','Fr','Sa','So'])grid.append(element('span','day header',name));for(let i=0;i<(new Date(y,m,1).getDay()+6)%7;i++)grid.append(element('span'));
  for(let i=1,n=new Date(y,m+1,0).getDate();i<=n;i++){
   const day=`${y}-${String(m+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
-  const b=element('button','day',String(i));b.type='button';b.setAttribute('aria-label',readable(day));const marker=calendarMarks(state.periods,state.profile,day,dayToday);if(marker)b.classList.add(marker);if(day===dayToday)b.classList.add('today');
+  const b=element('button','day',String(i));b.type='button';b.setAttribute('aria-label',readable(day));const marker=calendarMarks(state.periods,state.profile,day,dayToday);if(marker)b.classList.add(marker);if(fertility.available&&diffDays(fertility.start,day)>=0&&diffDays(day,fertility.end)>=0){b.classList.add('fertile-estimate');if(day===fertility.ovulation)b.classList.add('ovulation-estimate');b.setAttribute('aria-label',readable(day)+(day===fertility.ovulation?' – rechnerisch geschätzter Eisprung':' – rechnerisch geschätztes fruchtbares Zeitfenster'));}if(day===dayToday)b.classList.add('today');
   b.addEventListener('click',()=>{$('period-start').value=day;$('period-original').value='';$('period-submit').textContent='Periode speichern';$('period-cancel').hidden=true;toast('Datum ausgewählt: '+shortReadable(day));});grid.append(b);
  }
 }
@@ -126,15 +138,31 @@ function renderSymptoms(){const target=$('symptom-list');target.replaceChildren(
  const desc=element('p','muted small',`Durchschnitt der erfassten Schmerzwerte: ${stats.avgPain.toLocaleString('de-DE')} / 10${stats.topSymptom?' · Häufigster Eintrag: '+stats.topSymptom:''}.`);results.append(desc);
  if(stats.severeDays>=2)results.append(element('div','notice','Du hast in den letzten 30 Tagen mehrfach starke Schmerzen erfasst. Bitte sprich darüber mit einer medizinischen Fachperson.'));}
 }
-function renderMoon(){const m=moonPhase(dayToday);$('moon-big').textContent=m.emoji;$('moon-phase-name').textContent=m.label;$('moon-thought').textContent='Ein schöner Anlass für ein kleines Ritual: Halte inne und frag dich, was dir heute guttut. ✨';const sign=zodiac(state.profile.birthday);$('zodiac-description').textContent=sign?`Dein Sternzeichen: ${sign} ♡ Hier findest du bald weitere freiwillige Astro-Impulse – nur als Unterhaltung.`:'Trage im Profil freiwillig deinen Geburtstag ein, wenn du dein Sternzeichen sehen möchtest.';}
+function renderMoon(){
+ const m=moonPhase(dayToday);
+ $('moon-big').textContent=m.emoji;
+ $('moon-phase-name').textContent=m.label;
+ $('moon-thought').textContent='Ein schöner Anlass für ein kleines Ritual: Halte inne und frag dich, was dir heute guttut. ✨';
+ const sign=zodiac(state.profile.birthday);
+ const h=sign?dailyHoroscope(sign,dayToday):null;
+ $('zodiac-description').textContent=h?`${h.symbol} ${h.sign} · Dein Tageshoroskop für ${readable(dayToday)}`:'Trage im Profil freiwillig deinen Geburtstag ein, um dein Tageshoroskop zu sehen.';
+ $('horoscope-panel').hidden=!h;
+ if(h){
+  $('horoscope-main').textContent=h.message;
+  $('horoscope-love').textContent=h.love;
+  $('horoscope-work').textContent=h.work;
+  $('horoscope-wellbeing').textContent=h.wellbeing;
+ }
+}
 function renderProfile(){const p=state.profile;$('profile-name').value=p.name||'';$('profile-birthday').value=p.birthday||'';$('profile-length').value=p.cycleLength||28;$('profile-duration').value=p.duration||5;$('profile-time').value=p.time||'08:00';$('appointment-date').value=state.appointment.date||'';$('appointment-notes').value=state.appointment.notes||'';$('appointment-result').textContent=state.appointment.date?`Notiert: ${new Date(state.appointment.date).toLocaleString('de-DE')}`:'Noch kein Termin notiert.';}
-function render(){renderHome();renderCalendar();renderPeriods();renderSymptoms();renderMoon();if(active==='profile')renderProfile();}
+function render(){renderHome();renderFertility();renderCalendar();renderPeriods();renderSymptoms();renderMoon();if(active==='profile')renderProfile();}
 // Event delegation: all navigation and interactions remain accessible to keyboard and touch.
 document.querySelectorAll('[data-screen]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.screen)));
 document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.go)));
 $('today-shortcut').addEventListener('click',()=>navigate('home'));
 document.querySelectorAll('[data-mood]').forEach(b=>b.addEventListener('click',async()=>{state.moods[dayToday]=b.dataset.mood;if(!await save())return;renderHome();toast('Deine Stimmung ist gespeichert ♡');}));
 $('copy-quote').addEventListener('click',async()=>{const text=$('morning-quote').textContent;try{if(navigator.share)await navigator.share({text});else if(navigator.clipboard) {await navigator.clipboard.writeText(text);toast('Nachricht kopiert ♡');}else toast('Teilen ist hier nicht verfügbar.');}catch(e){if(e?.name!=='AbortError')toast('Teilen nicht verfügbar.');}});
+$('fertility-toggle').addEventListener('change',e=>{try{localStorage.setItem(FERTILITY_OPT_IN,e.target.checked?'yes':'no');}catch{toast('Einstellung konnte nicht gespeichert werden.');}renderFertility();renderCalendar();});
 $('prev-month').addEventListener('click',()=>{monthView.setMonth(monthView.getMonth()-1);renderCalendar()});$('next-month').addEventListener('click',()=>{monthView.setMonth(monthView.getMonth()+1);renderCalendar()});
 $('period-form').addEventListener('submit',async e=>{e.preventDefault();const start=$('period-start').value,duration=+$('period-duration').value,original=$('period-original').value;if(!parseDate(start)||diffDays(start,dayToday)<0||!Number.isInteger(duration)||duration<1||duration>15){toast('Bitte ein gültiges vergangenes oder heutiges Datum und 1–15 Tage angeben.');return;}if(state.periods.some(x=>x.start===start&&x.start!==original)){toast('Dieser Periodenstart ist bereits erfasst.');return;}state.periods=state.periods.filter(x=>x.start!==original);state.periods.push({start,duration});state.periods=normalizePeriods(state.periods);if(!await save())return;resetPeriodForm();render();toast('Periode gespeichert und Prognose angepasst ♡');});$('period-cancel').addEventListener('click',resetPeriodForm);
 $('pain-range').addEventListener('input',()=>{$('pain-number').textContent=$('pain-range').value+' / 10';});$('symptom-form').addEventListener('submit',async e=>{e.preventDefault();const date=$('symptom-date').value,pain=Number($('pain-range').value);if(!parseDate(date)||diffDays(date,dayToday)<0||pain<0||pain>10){toast('Bitte ein gültiges Datum und Schmerzstärke wählen.');return;}state.symptoms=state.symptoms.filter(x=>x.date!==date);state.symptoms.push({date,pain,type:$('symptom-type').value,notes:$('symptom-notes').value.trim().slice(0,400)});state.symptoms.sort((a,b)=>b.date.localeCompare(a.date));if(!await save())return;$('symptom-notice').textContent='Dein Eintrag wurde gespeichert ♡';renderHome();renderSymptoms();toast('Wohlbefinden gespeichert');});

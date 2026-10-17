@@ -56,6 +56,17 @@ export function calendarMarks(periods,settings,day,today) {
   if(s.next&&diffDays(s.next,day)>=0&&diffDays(s.next,day)<(Number(settings.duration)||5) && diffDays(today,day)>=0) return 'forecast';
   return '';
 }
+/** Optional calendar-only illustration. Never use for contraception or fertility decisions. */
+export function fertilityEstimate(periods=[],settings={},today) {
+  const s=cycleStatus(periods,settings,today);
+  if(s.actual.length<3 || s.observations<2) return {available:false,reason:'Für eine erste Schätzung mindestens drei tatsächliche Periodenstarts eintragen.'};
+  if(s.spread!==null && s.spread>=7) return {available:false,reason:'Deine dokumentierten Zykluslängen schwanken deutlich. Luna zeigt deshalb keine konkreten fruchtbaren Tage an.'};
+  if(s.kind!=='current') return {available:false,reason:'Aktuell ist keine sinnvolle Kalenderschätzung möglich. Trage einen neuen tatsächlichen Periodenbeginn ein.'};
+  const last=s.actual.at(-1);
+  const ovulation=addDays(last.start,s.length-14);
+  if(!ovulation || diffDays(last.start,ovulation)<0) return {available:false,reason:'Keine Schätzung möglich.'};
+  return {available:true,ovulation,start:addDays(ovulation,-5),end:ovulation,length:s.length,uncertain:true};
+}
 /** Astronomical approximation, not tied to health or the menstrual cycle. */
 export function moonPhase(day) {
   const d=parseDate(day);if(!d)return {label:'Unbekannt',emoji:'🌙'};
