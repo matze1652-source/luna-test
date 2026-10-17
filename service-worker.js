@@ -1,5 +1,5 @@
 /* Cache only Luna's public static app shell. Never cache personal or dynamic data. */
-const CACHE='luna-v38-linktest-static-1';
+const CACHE='luna-v39-passwordless-static-1';
 const ASSETS=['./','./index.html','./testhinweise.html','./styles.css','./app.mjs','./cycle.mjs','./content.mjs','./locale.mjs','./insights.mjs','./backup.mjs','./vault.mjs','./reminder.mjs','./notification-status.mjs','./notification-preview.mjs','./local-notifications.mjs','./native-reminder-ui.mjs','./pricing.mjs','./privacy-lock.mjs','./demo-mode.mjs','./storage-resilience.mjs','./legacy-migration.mjs','./manifest.webmanifest','./assets/luna-icon.svg'];
 const ALLOWED=new Set(ASSETS.map(path=>new URL(path,self.registration.scope).href));
 // Precache only verified public responses. cache.addAll would store private responses unchecked.

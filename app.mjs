@@ -16,6 +16,7 @@ import {demoState,demoSave} from './demo-mode.mjs';
 import {inspectStorageProtection,requestStorageProtection} from './storage-resilience.mjs';
 import {loadLegacy} from './legacy-migration.mjs';
 const DEMO_MODE=globalThis.__LUNA_DEMO__===true;
+const TEST_NO_LOGIN=true; // Only fictional test data; local storage is not encrypted.
 const KEY='luna-v2-private-local'; // legacy V4 key; removed after verified encrypted migration
 const $=id=>document.getElementById(id);
 const todayISO=()=>{const n=new Date();return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;};
@@ -23,7 +24,16 @@ let dayToday=todayISO();
 const readable=d=>parseDate(d)?new Date(`${d}T12:00:00`).toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'}):'–';
 const shortReadable=d=>parseDate(d)?new Date(`${d}T12:00:00`).toLocaleDateString('de-DE',{day:'numeric',month:'short'}):'–';
 const defaults=()=>({version:2,profile:{name:'',birthday:'',cycleLength:28,duration:5,time:'06:30'},periods:[],symptoms:[],moods:{},appointment:{date:'',notes:''}});
-const vault=DEMO_MODE?{get unlocked(){return true;},lock(){},exists(){return false;},legacyPresent(){return false;}}:new LunaVault();
+const TEST_KEY='luna-v39-fictional-test-only';
+const testVault={
+ get unlocked(){return true;}, get current(){return null;},
+ exists(){return localStorage.getItem(TEST_KEY)!==null;}, legacyPresent(){return false;},
+ lock(){},cleanupLegacy(){return true;},
+ clear(){localStorage.removeItem(TEST_KEY);},
+ async save(data){localStorage.setItem(TEST_KEY,JSON.stringify(data));},
+ read(){const raw=localStorage.getItem(TEST_KEY);if(!raw)return null;try{const obj=JSON.parse(raw);return obj&&typeof obj==='object'&&obj.profile&&Array.isArray(obj.periods)&&Array.isArray(obj.symptoms)?obj:null;}catch{return null;}}
+};
+const vault=TEST_NO_LOGIN?testVault:DEMO_MODE?{get unlocked(){return true;},lock(){},exists(){return false;},legacyPresent(){return false;}}:new LunaVault();
 let state=defaults();let monthView=new Date();monthView.setDate(1);let active='home';
 let saveQueue=Promise.resolve(),pendingWrites=0,storageFailed=false,saveGeneration=0;
 const privacyLock=new PrivacyLock({
@@ -55,11 +65,12 @@ function showApp(legacyCleared=true){
  $('vault-gate').hidden=true;document.querySelector('.app-shell').hidden=false;
  $('legacy-warning').hidden=legacyCleared;
  $('vault-password').value='';$('vault-confirm').value='';
- resetPeriodForm();resetSymptomForm();render();updateSaveStatus();if(!DEMO_MODE)privacyLock.start();
+ resetPeriodForm();resetSymptomForm();render();updateSaveStatus();if(!DEMO_MODE&&!TEST_NO_LOGIN)privacyLock.start();
 }
-function updateSaveStatus(){if($('save-status'))$('save-status').textContent=DEMO_MODE?'🌷 Nur Demo':pendingWrites?'⏳ Speichere …':'🔒 Geschützt';}
+function updateSaveStatus(){if($('save-status'))$('save-status').textContent=DEMO_MODE?'🌷 Nur Demo':TEST_NO_LOGIN?(pendingWrites?'⏳ Speichere …':'🌷 Testdaten lokal'):pendingWrites?'⏳ Speichere …':'🔒 Geschützt';}
 function storageFailure(err){
  if(storageFailed)return;
+ if(TEST_NO_LOGIN){alert('Speichern nicht möglich. Bitte prüfe, ob dein Browser lokalen Speicher erlaubt.');return;}
  storageFailed=true;saveGeneration++;vault.lock();state=defaults();
  showGate('Speichern fehlgeschlagen: '+(err?.message||'Unbekannter Fehler')+' Nicht gespeicherte Änderungen können verloren sein. Bitte Luna erneut entsperren.');
 }
@@ -229,6 +240,7 @@ $('data-delete').addEventListener('click',async()=>{
 });
 $('vault-form').addEventListener('submit',async e=>{
  e.preventDefault();
+ if(TEST_NO_LOGIN){const name=$('vault-password').value.trim().slice(0,40);if(!name){$('vault-status').textContent='Bitte gib einen Vornamen ein.';return;}state=defaults();state.profile.name=name;try{await vault.save(state);showApp();}catch{$('vault-status').textContent='Speichern ist in diesem Browser nicht möglich.';}return;}
  const password=$('vault-password').value,confirmPassword=$('vault-confirm').value;
  const exists=vault.exists();
  if(password.length<12){$('vault-status').textContent='Bitte mindestens 12 Zeichen verwenden.';return;}
@@ -247,11 +259,11 @@ $('vault-reset').addEventListener('click',()=>{
 $('retry-cleanup').addEventListener('click',()=>{const success=vault.cleanupLegacy();$('legacy-warning').hidden=success;if(success)toast('Alte unverschlüsselte Einträge entfernt.');else toast('Entfernen nicht möglich.');});
 $('lock-vault').addEventListener('click',async()=>{await saveQueue;vault.lock();state=defaults();location.reload();});
 window.addEventListener('storage',event=>{
- if(event.key===VAULT_KEY&&vault.unlocked&&event.newValue!==vault.current){vault.lock();state=defaults();location.reload();}
+ if(!TEST_NO_LOGIN&&event.key===VAULT_KEY&&vault.unlocked&&event.newValue!==vault.current){vault.lock();state=defaults();location.reload();}
 });
 window.addEventListener('beforeunload',event=>{if(pendingWrites>0){event.preventDefault();event.returnValue='';}});
 document.addEventListener('visibilitychange',()=>{
- if(DEMO_MODE)return;
+ if(DEMO_MODE||TEST_NO_LOGIN)return;
  if(document.visibilityState==='hidden'){privacyLock.hide();return;}
  privacyLock.show();
  if(vault.unlocked&&dayToday!==todayISO()){dayToday=todayISO();resetPeriodForm();resetSymptomForm();render();}
@@ -265,6 +277,23 @@ if(DEMO_MODE){
  document.querySelectorAll('[data-real-only]').forEach(el=>el.hidden=true);
  $('profile-time').closest('label').hidden=true;
  $('profile-form').querySelector('.muted.small').textContent='Demo: Alle Änderungen sind nur vorübergehend und werden nicht gespeichert.';
+}else if(TEST_NO_LOGIN){
+ const existing=vault.read();
+ if(existing){state=existing;showApp();}
+ else{
+  $('vault-title').textContent='Willkommen bei Luna ♡';
+  $('vault-intro').textContent='Wie heißt du? Starte ohne Anmeldung. Bitte nur erfundene Testdaten eingeben.';
+  $('vault-confirm-label').hidden=true;
+  $('vault-password').type='text';$('vault-password').minLength=1;
+  $('vault-password').removeAttribute('autocomplete');
+  $('vault-submit').textContent='Luna starten ♡';
+  $('vault-reset').hidden=true;
+  $('vault-gate').hidden=false;
+ }
+ document.querySelectorAll('[data-real-only]').forEach(el=>{
+  if(el.id==='lock-vault'||el.querySelector('#password-change-form'))el.hidden=true;
+ });
+ $('legacy-warning').hidden=true;
 }else showGate();
 if(!nativePlatform(globalThis.Capacitor)&&!DEMO_MODE&&'serviceWorker' in navigator && location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
 

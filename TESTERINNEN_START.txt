@@ -1,9 +1,8 @@
-LUNA LINK-TEST – TESTERINNEN
-1. HTTPS-Link in Safari auf dem iPhone öffnen.
-2. Optional: Teilen > Zum Home-Bildschirm.
-3. Bitte nur ERFUNDENE Daten verwenden.
-4. Kalender, Stimmung, Symptome, Mond und Bedienung testen.
-5. Keine echten Gesundheitsdaten oder Screenshots persönlicher Angaben senden.
-6. Automatische 06:30-Uhr-Benachrichtigungen funktionieren in diesem Link-Test nicht.
-7. Keine Zahlungen oder Abos.
-8. Feedback zu Fehlern und Bedienung an die Person senden, die dich eingeladen hat.
+Luna V39 – passwortfreie Testversion
+
+1. Luna-Link in Safari öffnen.
+2. Beim ersten Mal einen Vornamen eingeben.
+3. Danach startet Luna direkt.
+4. Nur ERFUNDENE Gesundheitsdaten eingeben!
+5. Einträge liegen unverschlüsselt lokal auf diesem Gerät. Kein Login, kein Cloud-Backup, keine Synchronisierung.
+6. Alte verschlüsselte V38-Einträge werden NICHT übernommen oder gelöscht.
