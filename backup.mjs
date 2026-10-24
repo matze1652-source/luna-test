@@ -33,6 +33,7 @@ export function sanitizePrivateState(data){
    periods:normalizePeriods(data.periods),
    symptoms:data.symptoms.map(x=>({date:x.date,pain:Number(x.pain),type:nonBlankString(x.type,40)||'Andere',notes:nonBlankString(x.notes,400)})).sort((a,b)=>b.date.localeCompare(a.date)),
    moods,
+   preferences:{fertilityOptIn:data.preferences?.fertilityOptIn===true},
    appointment:{date:nonBlankString(data.appointment?.date,16),notes:nonBlankString(data.appointment?.notes,700)}
  };
 }

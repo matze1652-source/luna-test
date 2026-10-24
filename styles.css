@@ -125,3 +125,31 @@ html,body{height:100%;overscroll-behavior:none}
 .horoscope-item strong{font-size:13px;color:#f4c6df}
 .horoscope-item p{font-size:13px;line-height:1.5;margin:5px 0 0;color:#eadbe8}
 .horoscope-disclaimer{line-height:1.6;margin-top:14px}
+
+/* V44: persistent protected-mode development warning, separate from plaintext test. */
+.protected-banner{margin:0 0 14px;padding:10px 13px;border-radius:13px;border:1px solid #9a779f;background:#372942;display:flex;gap:5px;flex-direction:column;color:#f7e2f1;font-size:11px;line-height:1.4}
+.protected-banner strong{font-size:12px}
+
+/* V45: warm light theme, clearer visual hierarchy; presentation only. */
+:root{color-scheme:light;--bg:#fff9f8;--surface:#ffffff;--border:#eadde5;--muted:#716674;--rose:#a93d77;--cream:#302735;--soft:#f9edf3;--accent:#b34d83;--danger:#8b284a}
+body{background:linear-gradient(180deg,#fff0f5 0,#fff9f8 310px);color:var(--cream)}
+.logo,.heart,.text-btn,.link-btn,a{color:#9e356f}
+.topbar{padding:17px 0 19px}.lead{color:#695e6c}.eyebrow,.micro{color:#8b4870}.eyebrow span{color:#746a76}
+.hero{background:linear-gradient(135deg,#fff1f6,#f5dbe8);border-color:#efd0df;box-shadow:0 8px 24px #9c54751c;color:#3b2b3b;padding:22px 20px}
+.hero-moon{color:#b65c89;opacity:.14}.hero-kicker,.hero-foot{color:#794461}
+.hero blockquote{font-size:22px;margin:13px 0 17px}
+.card,.tile,.soft-card,.metric,.history-item,.horoscope-item{background:#fff;border-color:#eddee6;box-shadow:0 3px 14px #70526a0b}
+.card.blush{background:#fff0f5}.card.lavender{background:#f4effb}.card.premium{background:linear-gradient(120deg,#fbe7f1,#f1e9fa)}
+.tile{min-height:135px;padding:15px;border-radius:17px}.tile-icon{margin-bottom:8px;color:#9f4679}.tile strong{min-height:0}.tile small,.history-item p,.soft-card p,.metric span{color:#746875}
+.section-title{margin:20px 0 9px}.duo{gap:10px}.mood-grid button{background:#fff;color:#594b5c;border-color:#eadbe5}.mood-grid button.active{background:#f6dce9;border-color:#b65389;color:#52243e}
+.notice,.daily-guidance{background:#f8eff5;border-color:#ead6e3;color:#4e3b4d}.notice.danger,.daily-guidance.urgent{background:#fff0f0;border:1px solid #d5a0ac;color:#70283b}.daily-guidance.caution{background:#fff6e9;border-color:#e8cda4;color:#674d2c}
+label{color:#493747}input,select,textarea{background:#fff;color:#302735;border-color:#cdbac8}input::placeholder,textarea::placeholder{color:#827681}
+.primary{background:#a83f79;color:#fff}.secondary{background:#f2e4ed;color:#643b58}.outline-danger{color:#922d4c;border-color:#c8879b}.status{color:#8a3966}
+.calendar .day{color:#4e4051}.calendar .header,.legend,.range-label{color:#756978}.calendar button.day:hover{background:#f9e9f2}.calendar .actual{background:#bb588d!important;color:#fff!important}.calendar .forecast{color:#8e386c;border-color:#b85d90}.calendar .today{box-shadow:inset 0 0 0 2px #965079}
+.moon-card{background:radial-gradient(circle at 50% 20%,#f5d8e9,#f9f4ff 80%);border-color:#e8d9eb}.moon-card p,.horoscope-item p{color:#65576b}.horoscope-main{color:#4d354d}.horoscope-item strong,.horoscope-kicker{color:#8d3b6b}
+.bottom-nav{background:#fffdfef5;border-color:#eadde6;box-shadow:0 -5px 22px #74516912}.bottom-nav button{color:#756b78}.bottom-nav button.selected{background:#f9e4ef;color:#8f3568}
+.icon-button,.circle-btn{background:#fff;border-color:#e8d5e1;color:#9b3c70}.toast{background:#a83f79;color:#fff}
+.vault-panel{background:#fff;border-color:#e8d8e4;box-shadow:0 15px 45px #71536a20}.protected-banner{background:#fff4e9;border-color:#e5c9a6;color:#68472f}
+.bar-track{background:#f0e3ed}.bar-date,.bar-value{color:#75576e}.metric strong{color:#a03f75}.pain-pill{background:#f7e5f0;color:#7e3262}
+.calendar .fertile-estimate:not(.actual):not(.forecast){background:#eee4f8;color:#5e3c81}.horoscope-disclaimer{color:#6e6271}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #a83f79;outline-offset:2px}

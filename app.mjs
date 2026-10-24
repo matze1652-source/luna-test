@@ -1,4 +1,5 @@
-import {setupNativeReminderUI,sendNativeTestNotification} from './native-reminder-ui.mjs';
+import {registerLunaNotificationTap} from './notification-navigation.mjs';
+import {setupNativeReminderUI,refreshNativeMorningNotifications,stopNativeMorningNotifications,sendNativeTestNotification} from './native-reminder-ui.mjs';
 import {nativePlatform} from './local-notifications.mjs';
 import {resolveLocale} from './locale.mjs';
 document.documentElement.lang = resolveLocale(typeof navigator !== 'undefined' ? navigator.languages : [] ).slice(0,2);
@@ -15,26 +16,23 @@ import {LunaVault,VAULT_KEY} from './vault.mjs';
 import {PrivacyLock} from './privacy-lock.mjs';
 import {demoState,demoSave} from './demo-mode.mjs';
 import {inspectStorageProtection,requestStorageProtection} from './storage-resilience.mjs';
-import {loadLegacy} from './legacy-migration.mjs';
+import {LunaTestStore,TEST_KEY,FERTILITY_OPT_IN} from './test-storage.mjs';
+import {resolveLunaMode,LUNA_MODES} from './mode.mjs';
 const DEMO_MODE=globalThis.__LUNA_DEMO__===true;
-const TEST_NO_LOGIN=true; // Only fictional test data; local storage is not encrypted.
+const TEST_NO_LOGIN=resolveLunaMode(location.pathname,document.documentElement.dataset.lunaMode,nativePlatform(globalThis.Capacitor))===LUNA_MODES.TEST; // Explicit test/protected entrypoints.
+// Never allow a native store build to run the plaintext fictional-data entrypoint.
+if(nativePlatform(globalThis.Capacitor)&&TEST_NO_LOGIN){
+ document.body.textContent='Luna-Testmodus ist auf installierten Geräten gesperrt. Für die native App ist der geschützte Start erforderlich.';
+ throw new Error('Unsafe native entrypoint: use protected.html');
+}
 const KEY='luna-v2-private-local'; // legacy V4 key; removed after verified encrypted migration
 const $=id=>document.getElementById(id);
 const todayISO=()=>{const n=new Date();return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;};
 let dayToday=todayISO();
 const readable=d=>parseDate(d)?new Date(`${d}T12:00:00`).toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'}):'–';
 const shortReadable=d=>parseDate(d)?new Date(`${d}T12:00:00`).toLocaleDateString('de-DE',{day:'numeric',month:'short'}):'–';
-const defaults=()=>({version:2,profile:{name:'',birthday:'',cycleLength:28,duration:5,time:'06:30'},periods:[],symptoms:[],moods:{},appointment:{date:'',notes:''}});
-const TEST_KEY='luna-v39-fictional-test-only';
-const testVault={
- get unlocked(){return true;}, get current(){return null;},
- exists(){return localStorage.getItem(TEST_KEY)!==null;}, legacyPresent(){return false;},
- lock(){},cleanupLegacy(){return true;},
- clear(){localStorage.removeItem(TEST_KEY);},
- async save(data){localStorage.setItem(TEST_KEY,JSON.stringify(data));},
- read(){const raw=localStorage.getItem(TEST_KEY);if(!raw)return null;try{const obj=JSON.parse(raw);return obj&&typeof obj==='object'&&obj.profile&&Array.isArray(obj.periods)&&Array.isArray(obj.symptoms)?obj:null;}catch{return null;}}
-};
-const vault=TEST_NO_LOGIN?testVault:DEMO_MODE?{get unlocked(){return true;},lock(){},exists(){return false;},legacyPresent(){return false;}}:new LunaVault();
+const defaults=()=>({version:2,profile:{name:'',birthday:'',cycleLength:28,duration:5,time:'06:30'},periods:[],symptoms:[],moods:{},preferences:{fertilityOptIn:false},appointment:{date:'',notes:''}});
+const vault=TEST_NO_LOGIN?new LunaTestStore():DEMO_MODE?{get unlocked(){return true;},lock(){},exists(){return false;},legacyPresent(){return false;}}:new LunaVault();
 let state=defaults();let monthView=new Date();monthView.setDate(1);let active='home';
 let saveQueue=Promise.resolve(),pendingWrites=0,storageFailed=false,saveGeneration=0;
 const privacyLock=new PrivacyLock({
@@ -57,6 +55,7 @@ function showGate(message=''){
  $('vault-title').textContent=exists?'Willkommen zurück ♡':'Deine Daten. Dein Schlüssel. ♡';
  $('vault-intro').textContent=exists?'Entsperre Luna mit deinem Passwort. Deine Einträge werden erst danach angezeigt.':vault.legacyPresent()?'Deine bisherigen Einträge werden nach dem Festlegen eines Passworts verschlüsselt übernommen.':'Lege ein Passwort fest, um deine persönlichen Einträge verschlüsselt zu speichern.';
  $('vault-confirm-label').hidden=exists;$('vault-confirm').required=!exists;
+ $('vault-password').type='password';$('vault-password').minLength=12;
  $('vault-password').autocomplete=exists?'current-password':'new-password';
  $('vault-submit').textContent=exists?'Luna entsperren':'Luna schützen';
  $('vault-reset').hidden=!exists;
@@ -65,13 +64,22 @@ function showGate(message=''){
 function showApp(legacyCleared=true){
  $('vault-gate').hidden=true;document.querySelector('.app-shell').hidden=false;
  $('legacy-warning').hidden=legacyCleared;
+ if(!legacyCleared){
+  const retry=Boolean(vault.canRetryLegacyCleanup);
+  $('legacy-warning-text').textContent=retry
+   ?'Verschlüsselte Übernahme geprüft, aber ältere unverschlüsselte Einträge konnten nicht entfernt werden.'
+   :'Ältere unverschlüsselte Einträge sind noch vorhanden. Eine sichere Übernahme wurde nicht nachgewiesen; sie werden nicht automatisch gelöscht.';
+  $('retry-cleanup').hidden=!retry;
+ }
  $('vault-password').value='';$('vault-confirm').value='';
  resetPeriodForm();resetSymptomForm();render();updateSaveStatus();if(!DEMO_MODE&&!TEST_NO_LOGIN)privacyLock.start();
+ // Refill expiring local reminders only after the profile has been unlocked.
+ refreshNativeMorningNotifications(globalThis,()=>state.profile.name).catch(()=>{});
 }
 function updateSaveStatus(){if($('save-status'))$('save-status').textContent=DEMO_MODE?'🌷 Nur Demo':TEST_NO_LOGIN?(pendingWrites?'⏳ Speichere …':'🌷 Testdaten lokal'):pendingWrites?'⏳ Speichere …':'🔒 Geschützt';}
 function storageFailure(err){
  if(storageFailed)return;
- if(TEST_NO_LOGIN){alert('Speichern nicht möglich. Bitte prüfe, ob dein Browser lokalen Speicher erlaubt.');return;}
+ if(TEST_NO_LOGIN){storageFailed=true;saveGeneration++;vault.invalidate();state=defaults();alert('Testdaten konnten nicht gespeichert werden: '+(err?.message||'Unbekannter Fehler')+' Die Seite wird neu geladen, damit keine veralteten Einträge angezeigt werden.');location.reload();return;}
  storageFailed=true;saveGeneration++;vault.lock();state=defaults();
  showGate('Speichern fehlgeschlagen: '+(err?.message||'Unbekannter Fehler')+' Nicht gespeicherte Änderungen können verloren sein. Bitte Luna erneut entsperren.');
 }
@@ -97,8 +105,10 @@ function renderHome(){const now=new Date();$('home-date').textContent=now.toLoca
  const tips={gut:'Wie schön! Halte einen kleinen Moment fest, auf den du dich freust.',sensibel:'Deine Gefühle dürfen heute da sein. Gönne dir Ruhe, wenn du sie brauchst.',erschöpft:'Du darfst einen Gang zurückschalten. Vielleicht tut dir etwas Wärme gut.',gestresst:'Ein tiefer Atemzug und eine kleine Pause können den Tag leichter machen.'};$('home-tip').textContent=tips[mood]||'Ein paar Minuten Pause gehören auch zu einem guten Tag.';
  const guidance=dailyGuidance(state.symptoms.find(e=>e.date===dayToday),mood);const panel=$('daily-guidance');panel.textContent=guidance.text;panel.className='daily-guidance '+guidance.level;
 }
-const FERTILITY_OPT_IN='luna-test-fertility-v40-opt-in';
-function fertilityEnabled(){try{return localStorage.getItem(FERTILITY_OPT_IN)==='yes';}catch{return false;}}
+function fertilityEnabled(){
+ if(!TEST_NO_LOGIN)return state.preferences?.fertilityOptIn===true;
+ try{return localStorage.getItem(FERTILITY_OPT_IN)==='yes';}catch{return false;}
+}
 function renderFertility(){
  const toggle=$('fertility-toggle');toggle.checked=fertilityEnabled();
  const info=$('fertility-info');
@@ -162,11 +172,26 @@ document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=
 $('today-shortcut').addEventListener('click',()=>navigate('home'));
 document.querySelectorAll('[data-mood]').forEach(b=>b.addEventListener('click',async()=>{state.moods[dayToday]=b.dataset.mood;if(!await save())return;renderHome();toast('Deine Stimmung ist gespeichert ♡');}));
 $('copy-quote').addEventListener('click',async()=>{const text=$('morning-quote').textContent;try{if(navigator.share)await navigator.share({text});else if(navigator.clipboard) {await navigator.clipboard.writeText(text);toast('Nachricht kopiert ♡');}else toast('Teilen ist hier nicht verfügbar.');}catch(e){if(e?.name!=='AbortError')toast('Teilen nicht verfügbar.');}});
-$('fertility-toggle').addEventListener('change',e=>{try{localStorage.setItem(FERTILITY_OPT_IN,e.target.checked?'yes':'no');}catch{toast('Einstellung konnte nicht gespeichert werden.');}renderFertility();renderCalendar();});
+$('fertility-toggle').addEventListener('change',async e=>{
+ const enabled=e.target.checked;
+ if(TEST_NO_LOGIN){
+  try{localStorage.setItem(FERTILITY_OPT_IN,enabled?'yes':'no');}
+  catch{toast('Einstellung konnte nicht gespeichert werden.');renderFertility();return;}
+ }else{
+  // Fertility preferences can reveal sensitive health interests. In protected
+  // mode they belong in the encrypted vault, never a plaintext localStorage key.
+  state.preferences={...state.preferences,fertilityOptIn:enabled};
+  if(!await save())return;
+ }
+ renderFertility();renderCalendar();
+});
 $('prev-month').addEventListener('click',()=>{monthView.setMonth(monthView.getMonth()-1);renderCalendar()});$('next-month').addEventListener('click',()=>{monthView.setMonth(monthView.getMonth()+1);renderCalendar()});
 $('period-form').addEventListener('submit',async e=>{e.preventDefault();const start=$('period-start').value,duration=+$('period-duration').value,original=$('period-original').value;if(!parseDate(start)||diffDays(start,dayToday)<0||!Number.isInteger(duration)||duration<1||duration>15){toast('Bitte ein gültiges vergangenes oder heutiges Datum und 1–15 Tage angeben.');return;}if(state.periods.some(x=>x.start===start&&x.start!==original)){toast('Dieser Periodenstart ist bereits erfasst.');return;}state.periods=state.periods.filter(x=>x.start!==original);state.periods.push({start,duration});state.periods=normalizePeriods(state.periods);if(!await save())return;resetPeriodForm();render();toast('Periode gespeichert und Prognose angepasst ♡');});$('period-cancel').addEventListener('click',resetPeriodForm);
 $('pain-range').addEventListener('input',()=>{$('pain-number').textContent=$('pain-range').value+' / 10';});$('symptom-form').addEventListener('submit',async e=>{e.preventDefault();const date=$('symptom-date').value,pain=Number($('pain-range').value);if(!parseDate(date)||diffDays(date,dayToday)<0||pain<0||pain>10){toast('Bitte ein gültiges Datum und Schmerzstärke wählen.');return;}state.symptoms=state.symptoms.filter(x=>x.date!==date);state.symptoms.push({date,pain,type:$('symptom-type').value,notes:$('symptom-notes').value.trim().slice(0,400)});state.symptoms.sort((a,b)=>b.date.localeCompare(a.date));if(!await save())return;$('symptom-notice').textContent='Dein Eintrag wurde gespeichert ♡';renderHome();renderSymptoms();toast('Wohlbefinden gespeichert');});
-$('profile-form').addEventListener('submit',async e=>{e.preventDefault();const len=+$('profile-length').value,duration=+$('profile-duration').value,birthday=$('profile-birthday').value;if(!Number.isInteger(len)||len<15||len>90||!Number.isInteger(duration)||duration<1||duration>15||duration>len||(birthday&&(!parseDate(birthday)||diffDays(birthday,dayToday)<0))){toast('Bitte gültige Profilangaben machen.');return;}state.profile={name:$('profile-name').value.trim().slice(0,40),birthday,cycleLength:len,duration,time:$('profile-time').value||'08:00'};if(!await save())return;render();$('profile-status').textContent='Deine Einstellungen wurden gespeichert ♡';toast('Einstellungen gespeichert');});
+$('profile-form').addEventListener('submit',async e=>{e.preventDefault();const len=+$('profile-length').value,duration=+$('profile-duration').value,birthday=$('profile-birthday').value;if(!Number.isInteger(len)||len<15||len>90||!Number.isInteger(duration)||duration<1||duration>15||duration>len||(birthday&&(!parseDate(birthday)||diffDays(birthday,dayToday)<0))){toast('Bitte gültige Profilangaben machen.');return;}state.profile={name:$('profile-name').value.trim().slice(0,40),birthday,cycleLength:len,duration,time:$('profile-time').value||'08:00'};if(!await save())return;render();
+ // Update the pending greeting when the voluntarily supplied first name changes.
+ refreshNativeMorningNotifications(globalThis,()=>state.profile.name,{force:true}).catch(()=>{});
+ $('profile-status').textContent='Deine Einstellungen wurden gespeichert ♡';toast('Einstellungen gespeichert');});
 $('appointment-form').addEventListener('submit',async e=>{e.preventDefault();state.appointment={date:$('appointment-date').value,notes:$('appointment-notes').value.slice(0,700)};if(!await save())return;renderProfile();toast('Terminnotiz gespeichert (ohne Erinnerung)');});
 function downloadPrivateFile(contents,name,mime){
  const url=URL.createObjectURL(new Blob([contents],{type:mime}));
@@ -264,7 +289,9 @@ $('data-delete').addEventListener('click',async()=>{
  if(!confirm('Wirklich alle lokalen Zyklus-, Stimmungs- und Gesundheitsdaten unwiderruflich löschen?'))return;
  document.querySelector('.app-shell').hidden=true;
  await saveQueue;
- try{vault.clear();location.reload();}catch(err){showGate('Löschen fehlgeschlagen: '+(err?.message||'Unbekannter Fehler'));}
+ const stopped=await stopNativeMorningNotifications(globalThis);
+ if(!stopped.ok)alert('Lokale Morgenbenachrichtigungen konnten nicht vollständig deaktiviert werden. Bitte zusätzlich in den Geräteeinstellungen die Luna-Benachrichtigungen ausschalten.');
+ try{vault.clear();location.reload();}catch(err){alert((TEST_NO_LOGIN?'Testdaten':'Luna-Daten')+' konnten nicht vollständig gelöscht werden: '+(err?.message||'Unbekannter Fehler'));location.reload();}
 });
 $('vault-form').addEventListener('submit',async e=>{
  e.preventDefault();
@@ -275,18 +302,21 @@ $('vault-form').addEventListener('submit',async e=>{
  if(!exists&&password!==confirmPassword){$('vault-status').textContent='Die Passwörter stimmen nicht überein.';return;}
  $('vault-submit').disabled=true;$('vault-status').textContent='Bitte warten …';
  try{
-  const result=exists?await vault.unlock(password):await vault.create(password,loadLegacy(localStorage,defaults));
+  const result=exists?await vault.unlock(password):await vault.createMigratingLegacy(password,defaults);
   state=result.state;storageFailed=false;showApp(result.legacyCleared);
  }catch(err){showGate(err?.message||'Luna konnte nicht entsperrt werden.');}
  finally{$('vault-password').value='';$('vault-confirm').value='';$('vault-submit').disabled=false;}
 });
-$('vault-reset').addEventListener('click',()=>{
+$('vault-reset').addEventListener('click',async()=>{
  if(!confirm('Ohne Passwort können diese Daten nicht wiederhergestellt werden. Wirklich alle lokalen Luna-Daten endgültig löschen?'))return;
+ const stopped=await stopNativeMorningNotifications(globalThis);
+ if(!stopped.ok)alert('Lokale Morgenbenachrichtigungen konnten nicht vollständig deaktiviert werden. Bitte zusätzlich in den Geräteeinstellungen die Luna-Benachrichtigungen ausschalten.');
  try{vault.clear();location.reload();}catch(err){$('vault-status').textContent='Löschen fehlgeschlagen: '+(err?.message||'Unbekannter Fehler');}
 });
 $('retry-cleanup').addEventListener('click',()=>{const success=vault.cleanupLegacy();$('legacy-warning').hidden=success;if(success)toast('Alte unverschlüsselte Einträge entfernt.');else toast('Entfernen nicht möglich.');});
 $('lock-vault').addEventListener('click',async()=>{await saveQueue;vault.lock();state=defaults();location.reload();});
 window.addEventListener('storage',event=>{
+ if(TEST_NO_LOGIN && (event.key===TEST_KEY||event.key===null) && event.newValue!==vault.current){vault.invalidate();state=defaults();location.reload();return;}
  if(!TEST_NO_LOGIN&&event.key===VAULT_KEY&&vault.unlocked&&event.newValue!==vault.current){vault.lock();state=defaults();location.reload();}
 });
 window.addEventListener('beforeunload',event=>{if(pendingWrites>0){event.preventDefault();event.returnValue='';}});
@@ -295,6 +325,7 @@ document.addEventListener('visibilitychange',()=>{
  if(document.visibilityState==='hidden'){privacyLock.hide();return;}
  privacyLock.show();
  if(vault.unlocked&&dayToday!==todayISO()){dayToday=todayISO();resetPeriodForm();resetSymptomForm();render();}
+ if(vault.unlocked)refreshNativeMorningNotifications(globalThis,()=>state.profile.name).catch(()=>{});
 });
 window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
 if(DEMO_MODE){
@@ -306,9 +337,16 @@ if(DEMO_MODE){
  $('profile-time').closest('label').hidden=true;
  $('profile-form').querySelector('.muted.small').textContent='Demo: Alle Änderungen sind nur vorübergehend und werden nicht gespeichert.';
 }else if(TEST_NO_LOGIN){
- const existing=vault.read();
- if(existing){state=existing;showApp();}
- else{
+ let existing=null,readError=null;
+ try{existing=vault.read();}catch(err){readError=err;}
+ if(readError){
+  $('vault-title').textContent='Deine Testdaten konnten nicht gelesen werden';
+  $('vault-intro').textContent=readError.message;
+  $('vault-form').hidden=true;
+  $('vault-reset').hidden=false;
+  $('vault-reset').textContent='Beschädigte Testdaten löschen und neu starten';
+ }else if(existing){state=existing;showApp();}
+ else if(!readError){
   $('vault-title').textContent='Willkommen bei Luna ♡';
   $('vault-intro').textContent='Wie heißt du? Starte ohne Anmeldung. Bitte nur erfundene Testdaten eingeben.';
   $('vault-confirm-label').hidden=true;
@@ -318,6 +356,7 @@ if(DEMO_MODE){
   $('vault-reset').hidden=true;
   $('vault-gate').hidden=false;
  }
+ $('profile-time-note').textContent='Die Wunschzeit wird im Link-Test unverschlüsselt im Browser gespeichert. Es gibt noch keine automatische Hintergrund-Benachrichtigung.';
  document.querySelectorAll('[data-real-only]').forEach(el=>{
   if(el.id==='lock-vault'||el.querySelector('#password-change-form'))el.hidden=true;
  });
@@ -326,4 +365,11 @@ if(DEMO_MODE){
 if(!nativePlatform(globalThis.Capacitor)&&!DEMO_MODE&&'serviceWorker' in navigator && location.protocol==='https:')navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
 
 // Native mode replaces browser push controls with local device notifications.
-setupNativeReminderUI(globalThis).catch(()=>{});
+setupNativeReminderUI(globalThis,{getName:()=>vault.unlocked?state.profile.name:''}).catch(()=>{});
+
+// A notification tap must never bypass the encrypted password gate.
+if(nativePlatform(globalThis.Capacitor)){
+ import('@capacitor/local-notifications').then(({LocalNotifications})=>
+  registerLunaNotificationTap(LocalNotifications,{isUnlocked:()=>vault.unlocked,onHome:()=>navigate('home')})
+ ).catch(()=>{});
+}

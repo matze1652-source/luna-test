@@ -53,7 +53,9 @@ export function calendarMarks(periods,settings,day,today) {
   const s=cycleStatus(periods,settings,today), actual=s.actual;
   for(const p of actual) if(diffDays(p.start,day)>=0&&diffDays(p.start,day)<p.duration) return 'actual';
   // Only the immediately next predicted bleed; never manufacture subsequent cycles.
-  if(s.next&&diffDays(s.next,day)>=0&&diffDays(s.next,day)<(Number(settings.duration)||5) && diffDays(today,day)>=0) return 'forecast';
+  const requestedDuration=Number(settings.duration);
+  const forecastDuration=Number.isInteger(requestedDuration)&&requestedDuration>=1&&requestedDuration<=15?requestedDuration:5;
+  if(s.next&&diffDays(s.next,day)>=0&&diffDays(s.next,day)<forecastDuration && diffDays(today,day)>=0) return 'forecast';
   return '';
 }
 /** Optional calendar-only illustration. Never use for contraception or fertility decisions. */

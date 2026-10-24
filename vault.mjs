@@ -3,9 +3,12 @@
  * All user content is encrypted with a fresh AES-GCM nonce before localStorage writes.
  */
 import {sanitizePrivateState} from './backup.mjs';
+import {loadLegacy} from './legacy-migration.mjs';
 
 export const VAULT_KEY='luna-v5-encrypted-vault';
 export const LEGACY_KEYS=['luna-v2-private-local','luna_private_cycle_v1'];
+// Explicit full-data deletion in protected mode also removes fictional test records.
+const TEST_KEYS=['luna-v39-fictional-test-only','luna-test-fertility-v40-opt-in'];
 const FORMAT='luna-local-vault';
 const ITERATIONS=240000;
 const MAX_BYTES=1500000;
@@ -48,14 +51,42 @@ async function open(raw,key,api){
  return sanitizePrivateState(parsed);
 }
 export class LunaVault {
- constructor(storage=globalThis.localStorage,api=globalThis.crypto){this.storage=storage;this.api=api;this.key=null;this.salt=null;this.current=null;this.generation=0;}
+ constructor(storage=globalThis.localStorage,api=globalThis.crypto){this.storage=storage;this.api=api;this.key=null;this.salt=null;this.current=null;this.generation=0;this.verifiedLegacySnapshot=null;}
  assertSession(generation){if(this.generation!==generation)throw Error('Die Sitzung wurde inzwischen gesperrt. Bitte erneut entsperren.');}
  get unlocked(){return Boolean(this.key);}
+ get canRetryLegacyCleanup(){return Boolean(this.verifiedLegacySnapshot);}
  exists(){return this.storage.getItem(VAULT_KEY)!==null;}
  legacyPresent(){return LEGACY_KEYS.some(k=>this.storage.getItem(k)!==null);}
+ // Only legacy bytes that were explicitly imported and verified may be deleted.
+ // A later unlock cannot establish that legacy records match this vault.
  cleanupLegacy(){
-  for(const k of LEGACY_KEYS){try{this.storage.removeItem(k);}catch{ /* never claim successful cleanup */ }}
-  return !this.legacyPresent();
+  const snapshot=this.verifiedLegacySnapshot;
+  if(!snapshot)return !this.legacyPresent();
+  if(LEGACY_KEYS.some(k=>{
+   const previous=snapshot.get(k),now=this.storage.getItem(k);
+   return now!==previous && !(previous!==null&&now===null);
+  }))return false;
+  for(const k of LEGACY_KEYS){
+   if(snapshot.get(k)!==null){
+    try{this.storage.removeItem(k);}catch{return false;}
+   }
+  }
+  const cleared=!this.legacyPresent();
+  if(cleared)this.verifiedLegacySnapshot=null;
+  return cleared;
+ }
+ // Migration is a separate, explicit operation. Do not erase legacy records
+ // simply because a vault was created or unlocked.
+ async createMigratingLegacy(password,defaults){
+  if(this.exists())throw Error('Ein geschützter Datenspeicher existiert bereits.');
+  const snapshot=new Map(LEGACY_KEYS.map(k=>[k,this.storage.getItem(k)]));
+  const imported=loadLegacy(this.storage,defaults);
+  // Fail closed if source records changed between reading and validation.
+  if(LEGACY_KEYS.some(k=>this.storage.getItem(k)!==snapshot.get(k)))
+   throw Error('Alte Daten wurden während der Übernahme geändert. Bitte neu laden.');
+  const result=await this.create(password,imported);
+  this.verifiedLegacySnapshot=snapshot;
+  return {...result,legacyCleared:this.cleanupLegacy()};
  }
  async create(password,state){
   const generation=this.generation;
@@ -71,7 +102,7 @@ export class LunaVault {
   const verified=await open(this.storage.getItem(VAULT_KEY),key,this.api);
   this.assertSession(generation);
   this.key=key;this.salt=salt;this.current=raw;
-  return {state:verified,legacyCleared:this.cleanupLegacy()};
+  return {state:verified,legacyCleared:!this.legacyPresent()};
  }
  async unlock(password){
   const generation=this.generation;
@@ -84,7 +115,7 @@ export class LunaVault {
   // Detect a competing writer during the expensive password derivation.
   if(this.storage.getItem(VAULT_KEY)!==raw)throw Error('Die Daten wurden in einem anderen Tab geändert. Bitte erneut entsperren.');
   this.key=key;this.salt=salt;this.current=raw;
-  return {state,legacyCleared:this.cleanupLegacy()};
+  return {state,legacyCleared:!this.legacyPresent()};
  }
  async save(state){
   const generation=this.generation;
@@ -121,10 +152,12 @@ export class LunaVault {
   this.key=newKey;this.salt=newSalt;this.current=replacement;
   return true;
  }
- lock(){this.generation++;this.key=null;this.salt=null;this.current=null;}
+ lock(){this.generation++;this.key=null;this.salt=null;this.current=null;this.verifiedLegacySnapshot=null;}
  clear(){
   this.lock();
   this.storage.removeItem(VAULT_KEY);
-  for(const k of LEGACY_KEYS)this.storage.removeItem(k);
+  for(const k of [...LEGACY_KEYS,...TEST_KEYS])this.storage.removeItem(k);
+  if(this.exists()||[...LEGACY_KEYS,...TEST_KEYS].some(k=>this.storage.getItem(k)!==null))
+   throw Error('Nicht alle Luna-Daten konnten gelöscht werden.');
  }
 }

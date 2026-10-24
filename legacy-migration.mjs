@@ -23,6 +23,9 @@ function assertNoSilentLoss(source,clean){
 export function loadLegacy(storage,defaults){
  const v2=storage.getItem(V2_KEY),v1=storage.getItem(V1_KEY);
  if(v2===null&&v1===null)return defaults();
+ // Two independent legacy sources may contain different private records.
+ // Never silently prefer one and delete the other.
+ if(v2!==null&&v1!==null)throw Error('Zwei ältere Luna-Datenspeicher gefunden. Die automatische Übernahme wurde zum Schutz deiner Daten abgebrochen.');
  const state=defaults();
  let source;
  if(v2!==null){
